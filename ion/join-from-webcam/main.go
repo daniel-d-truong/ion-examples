@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 
 	"github.com/cloudwebrtc/go-protoo/client"
 	"github.com/cloudwebrtc/go-protoo/logger"
@@ -17,14 +18,17 @@ import (
 
 	"github.com/pion/mediadevices"
 	"github.com/pion/mediadevices/pkg/codec/vpx"
+
+	// _ "github.com/pion/mediadevices/pkg/driver/audiotest"
 	_ "github.com/pion/mediadevices/pkg/driver/videotest"
 
 	// _ "github.com/pion/mediadevices/pkg/driver/camera"
-
 	// _ "github.com/pion/mediadevices/pkg/driver/microphone"
+
 	"github.com/pion/mediadevices/pkg/frame"
 	"github.com/pion/mediadevices/pkg/prop"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v2"
+	"github.com/pion/webrtc/v2/pkg/media"
 )
 
 var (
@@ -74,7 +78,7 @@ func doJoin() {
 	mediaEngine.RegisterDefaultCodecs()
 
 	// Create a new RTCPeerConnection
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(&mediaEngine))
+	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
 	peerConnection, err := api.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
@@ -91,12 +95,6 @@ func doJoin() {
 		// do nothing
 	}
 
-	// opusParams, err := opus.NewParams()
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// opusParams.BitRate = 32000 // 32kbps
-
 	vp8Params, err := vpx.NewVP8Params()
 	if err != nil {
 		panic(err)
@@ -107,11 +105,13 @@ func doJoin() {
 		mediadevices.WithVideoEncoders(&vp8Params),
 	)
 
+	logger.Infof("Devices Detected: %s", mediadevices.EnumerateDevices())
+
 	s, err := mediadevices.GetUserMedia(mediadevices.MediaStreamConstraints{
 		Video: func(c *mediadevices.MediaTrackConstraints) {
 			c.FrameFormat = prop.FrameFormat(frame.FormatYUY2)
-			c.Width = prop.Int(1280)
-			c.Height = prop.Int(720)
+			c.Width = prop.Int(640)
+			c.Height = prop.Int(480)
 		},
 		Codec: codecSelector,
 	})
@@ -120,34 +120,110 @@ func doJoin() {
 		panic(err)
 	}
 
-	offer, _ := peerConnection.CreateOffer(nil)
+	// offer, _ := peerConnection.CreateOffer(nil)
 
-	// Create channel that is blocked until ICE Gathering is complete
-	gatherComplete := webrtc.GatheringCompletePromise(peerConnection)
-	peerConnection.SetLocalDescription(offer)
-	<-gatherComplete
+	// // Create channel that is blocked until ICE Gathering is complete
+	// gatherComplete := webrtc.GatheringCompletePromise(peerConnection)
+	// peerConnection.SetLocalDescription(offer)
+	// <-gatherComplete
 
-	for _, track := range s.GetTracks() {
+	mediaTrack := s.GetVideoTracks()[0].(*mediadevices.VideoTrack)
 
-		track.OnEnded(func(err error) {
-			fmt.Printf("Track (ID: %s ended with error: %v\n",
-				track.ID(), err)
-		})
+	// mediaTrack.Bind(webrtc.TrackLocalContext{
+	// 	ssrc: rand.Uint32(),
+	// })
+	// mediaTrackReader := mediaTrack.NewReader(false)
+	// mediaTrackReader, err := mediaTrack.NewEncodedIOReader(vp8Params.RTPCodec().MimeType)
+	// mediaTrackReader, err := mediaTrack.NewRTPReader
 
-		_, err = peerConnection.AddTransceiverFromTrack(track,
-			webrtc.RtpTransceiverInit{
-				Direction: webrtc.RTPTransceiverDirectionSendonly,
-			},
-		)
-		if err != nil {
-			panic(err)
-		}
+	// _, err = mediaTrack.NewRTPReader(vp8Params.RTPCodec().MimeType, rand.Uint32(), 1000)
+
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	// Create a video track
+	// outputTrack, addTrackErr := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: "video/vp8"}, "video", "pion")
+	outputTrack, addTrackErr := peerConnection.NewTrack(getPayloadType(mediaEngine, webrtc.RTPCodecTypeVideo, "VP8"), rand.Uint32(), "video", "pion")
+	if addTrackErr != nil {
+		panic(addTrackErr)
 	}
+
+	// outputTrack, addTrackErr
+
+	// t, err := peerConnection.AddTransceiverFromTrack(mediaTrack,
+	// 	webrtc.RtpTransceiverInit{
+	// 		Direction: webrtc.RTPTransceiverDirectionSendonly,
+	// 	},
+	// )
+
+	_, err = peerConnection.AddTrack(outputTrack)
+	if err != nil {
+		panic(err)
+	}
+
+	// sender.ReplaceTrack(mediaTrack)
+
+	// outputRtpSender, err := peerConnection.AddTrack(outputTrack)
+
+	// outputRtpSender.
+	// rtpReader, err := mediaTrack.NewRTPReader(vp8Params.RTPCodec().RTPCodecCapability, rand.Uint32(), 1000)
+
+	// for _, track := range s.GetTracks() {
+
+	// 	logger.Infof("found track id: %s, %s", track.ID(), track.Kind())
+
+	// 	track.OnEnded(func(err error) {
+	// 		fmt.Printf("Track (ID: %s ended with error: %v\n",
+	// 			track.ID(), err)
+	// 	})
+
+	// 	track.NewRTPReader(vp8Params.RTPCodec, rand.Uint32(), 1000)
+
+	// 	// _, err = peerConnection.AddTransceiverFromTrack(track,
+	// 	// 	webrtc.RtpTransceiverInit{
+	// 	// 		Direction: webrtc.RTPTransceiverDirectionSendonly,
+	// 	// 	},
+	// 	// )
+	// 	_, err = peerConnection.AddTrack(track)
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+	// }
+
+	go func() {
+		<-iceConnectedCtx.Done()
+
+		reader, err := mediaTrack.NewEncodedReader("video/VP8")
+
+		if err != nil {
+			logger.Panicf("error creating encoded reader: %s", err)
+		}
+
+		for {
+			// var buf []byte
+			currentFrame, release, err := reader.Read()
+
+			if err != nil {
+				logger.Debugf("error: %s", err)
+				continue
+			}
+
+			logger.Infof("bytes to send: %d", len(currentFrame.Data))
+			outputTrack.WriteSample(media.Sample{
+				Data:    currentFrame.Data,
+				Samples: currentFrame.Samples,
+			})
+
+			release()
+		}
+
+	}()
 
 	// Set the handler for ICE connection state
 	// This will notify you when the peer has connected/disconnected
 	peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
-		fmt.Printf("Connection State has changed %s \n", connectionState.String())
+		logger.Infof("Connection State has changed %s", connectionState.String())
 		if connectionState == webrtc.ICEConnectionStateConnected {
 			iceConnectedCtxCancel()
 		}
@@ -226,6 +302,49 @@ func doJoin() {
 							Type: webrtc.SDPTypeAnswer,
 							SDP:  answer.JSEP.SDP,
 						})
+
+						// Send our video file frame at a time. Pace our sending so we send it at the same speed it should be played back as.
+						// This isn't required since the video is timestamped, but we will such much higher loss if we send all at once.
+
+						// videoReader := mediaTrack.NewReader(false)
+						// var buf bytes.Buffer
+
+						// for {
+						// 	frame, release, err := videoReader.Read()
+
+						// 	if err == io.EOF {
+						// 		return
+						// 	}
+
+						// 	err = jpeg.Encode(&buf, frame, nil)
+						// 	release()
+
+						// 	// outputTrack.Write(buf.Bytes())
+
+						// 	outputTrack.WriteSample(media.Sample{Data: buf.Bytes()})
+
+						// }
+
+						// // send packets
+						// // Send our video file frame at a time. Pace our sending so we send it at the same speed it should be played back as.
+						// // This isn't required since the video is timestamped, but we will such much higher loss if we send all at once.
+						// for {
+						// 	packets, _, err := outputMediaRtpReader.Read()
+						// 	logger.Debugf("sending packets: %d", len(packets))
+
+						// 	// outputPackets := make([])
+						// 	// peerConnection.WriteRTCP(packets)
+						// 	if err != nil {
+						// 		logger.Infof("err: %s", err)
+						// 	}
+
+						// 	for _, packet := range packets {
+						// 		// packet.
+						// 		outputTrack.WriteRTP(packet)
+
+						// 	}
+						// }
+
 					},
 					func(code int, err string) {
 						logger.Infof("publish reject: %d => %s", code, err)
@@ -242,4 +361,16 @@ func doJoin() {
 	for {
 		// wait until end of file and exit
 	}
+}
+
+// Search for Codec PayloadType
+//
+// Since we are answering we need to match the remote PayloadType
+func getPayloadType(m webrtc.MediaEngine, codecType webrtc.RTPCodecType, codecName string) uint8 {
+	for _, codec := range m.GetCodecsByKind(codecType) {
+		if codec.Name == codecName {
+			return codec.PayloadType
+		}
+	}
+	panic(fmt.Sprintf("Remote peer does not support %s", codecName))
 }
