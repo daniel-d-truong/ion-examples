@@ -22,9 +22,9 @@ import (
 	"github.com/cloudwebrtc/go-protoo/transport"
 	"github.com/google/uuid"
 
-	"github.com/pion/webrtc/v3"
-	"github.com/pion/webrtc/v3/pkg/media"
-	"github.com/pion/webrtc/v3/pkg/media/ivfreader"
+	"github.com/pion/webrtc/v2"
+	"github.com/pion/webrtc/v2/pkg/media"
+	"github.com/pion/webrtc/v2/pkg/media/ivfreader"
 )
 
 var (
@@ -98,20 +98,28 @@ func doJoin() {
 	}
 	iceConnectedCtx, iceConnectedCtxCancel := context.WithCancel(context.Background())
 
-	offer, _ := peerConnection.CreateOffer(nil)
+	// offer, _ := peerConnection.CreateOffer(nil)
 
-	// Create channel that is blocked until ICE Gathering is complete
-	gatherComplete := webrtc.GatheringCompletePromise(peerConnection)
-	peerConnection.SetLocalDescription(offer)
-	<-gatherComplete
+	// // Create channel that is blocked until ICE Gathering is complete
+	// gatherComplete := webrtc.GatheringCompletePromise(peerConnection)
+	// peerConnection.SetLocalDescription(offer)
+	// <-gatherComplete
 
 	// Create a video track
 	videoTrack, addTrackErr := peerConnection.NewTrack(getPayloadType(mediaEngine, webrtc.RTPCodecTypeVideo, "VP8"), rand.Uint32(), "video", "pion")
 	if addTrackErr != nil {
 		panic(addTrackErr)
 	}
-	if _, addTrackErr = peerConnection.AddTrack(videoTrack); err != nil {
-		panic(addTrackErr)
+	// if _, addTrackErr = peerConnection.AddTrack(videoTrack); err != nil {
+	// 	panic(addTrackErr)
+	// }
+
+	if _, addTrackErr = peerConnection.AddTransceiverFromTrack(videoTrack,
+		webrtc.RtpTransceiverInit{
+			Direction: webrtc.RTPTransceiverDirectionSendonly,
+		},
+	); err != nil {
+		panic(err)
 	}
 
 	startTime := time.Now()
@@ -130,7 +138,7 @@ func doJoin() {
 
 		// Wait for connection established
 		<-iceConnectedCtx.Done()
-		<-gatherComplete
+		// <-gatherComplete
 
 		// Send our video file frame at a time. Pace our sending so we send it at the same speed it should be played back as.
 		// This isn't required since the video is timestamped, but we will such much higher loss if we send all at once.
@@ -258,7 +266,7 @@ func doJoin() {
 							Type: webrtc.SDPTypeAnswer,
 							SDP:  answer.JSEP.SDP,
 						})
-						<-gatherComplete
+						// <-gatherComplete
 					},
 					func(code int, err string) {
 						logger.Infof("publish reject: %d => %s", code, err)
