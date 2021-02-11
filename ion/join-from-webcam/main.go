@@ -16,14 +16,15 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/pion/mediadevices"
-	"github.com/pion/mediadevices/pkg/codec"
-	"github.com/pion/mediadevices/pkg/codec/opus"
 	"github.com/pion/mediadevices/pkg/codec/vpx"
-	_ "github.com/pion/mediadevices/pkg/driver/camera"
-	_ "github.com/pion/mediadevices/pkg/driver/microphone"
+	_ "github.com/pion/mediadevices/pkg/driver/videotest"
+
+	// _ "github.com/pion/mediadevices/pkg/driver/camera"
+
+	// _ "github.com/pion/mediadevices/pkg/driver/microphone"
 	"github.com/pion/mediadevices/pkg/frame"
 	"github.com/pion/mediadevices/pkg/prop"
-	"github.com/pion/webrtc/v2"
+	"github.com/pion/webrtc/v3"
 )
 
 var (
@@ -73,7 +74,7 @@ func doJoin() {
 	mediaEngine.RegisterDefaultCodecs()
 
 	// Create a new RTCPeerConnection
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
+	api := webrtc.NewAPI(webrtc.WithMediaEngine(&mediaEngine))
 	peerConnection, err := api.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
@@ -89,13 +90,12 @@ func doJoin() {
 	if iceConnectedCtx != nil {
 		// do nothing
 	}
-	md := mediadevices.NewMediaDevices(peerConnection)
 
-	opusParams, err := opus.NewParams()
-	if err != nil {
-		panic(err)
-	}
-	opusParams.BitRate = 32000 // 32kbps
+	// opusParams, err := opus.NewParams()
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// opusParams.BitRate = 32000 // 32kbps
 
 	vp8Params, err := vpx.NewVP8Params()
 	if err != nil {
@@ -103,30 +103,38 @@ func doJoin() {
 	}
 	vp8Params.BitRate = 100000 // 100kbps
 
-	s, err := md.GetUserMedia(mediadevices.MediaStreamConstraints{
-		Audio: func(c *mediadevices.MediaTrackConstraints) {
-			c.Enabled = true
-			c.AudioEncoderBuilders = []codec.AudioEncoderBuilder{&opusParams}
-		},
+	codecSelector := mediadevices.NewCodecSelector(
+		mediadevices.WithVideoEncoders(&vp8Params),
+	)
+
+	s, err := mediadevices.GetUserMedia(mediadevices.MediaStreamConstraints{
 		Video: func(c *mediadevices.MediaTrackConstraints) {
 			c.FrameFormat = prop.FrameFormat(frame.FormatYUY2)
-			c.Enabled = true
 			c.Width = prop.Int(1280)
 			c.Height = prop.Int(720)
-			c.VideoEncoderBuilders = []codec.VideoEncoderBuilder{&vp8Params}
 		},
+		Codec: codecSelector,
 	})
+
 	if err != nil {
 		panic(err)
 	}
 
-	for _, tracker := range s.GetTracks() {
-		t := tracker.Track()
-		tracker.OnEnded(func(err error) {
-			fmt.Printf("Track (ID: %s, Label: %s) ended with error: %v\n",
-				t.ID(), t.Label(), err)
+	offer, _ := peerConnection.CreateOffer(nil)
+
+	// Create channel that is blocked until ICE Gathering is complete
+	gatherComplete := webrtc.GatheringCompletePromise(peerConnection)
+	peerConnection.SetLocalDescription(offer)
+	<-gatherComplete
+
+	for _, track := range s.GetTracks() {
+
+		track.OnEnded(func(err error) {
+			fmt.Printf("Track (ID: %s ended with error: %v\n",
+				track.ID(), err)
 		})
-		_, err = peerConnection.AddTransceiverFromTrack(t,
+
+		_, err = peerConnection.AddTransceiverFromTrack(track,
 			webrtc.RtpTransceiverInit{
 				Direction: webrtc.RTPTransceiverDirectionSendonly,
 			},
@@ -234,16 +242,4 @@ func doJoin() {
 	for {
 		// wait until end of file and exit
 	}
-}
-
-// Search for Codec PayloadType
-//
-// Since we are answering we need to match the remote PayloadType
-func getPayloadType(m webrtc.MediaEngine, codecType webrtc.RTPCodecType, codecName string) uint8 {
-	for _, codec := range m.GetCodecsByKind(codecType) {
-		if codec.Name == codecName {
-			return codec.PayloadType
-		}
-	}
-	panic(fmt.Sprintf("Remote peer does not support %s", codecName))
 }
